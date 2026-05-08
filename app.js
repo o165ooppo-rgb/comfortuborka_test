@@ -10,8 +10,11 @@ let _staffChatOpen = false;
 let _staffChatDirectorLogin = null;
 let _staffChatPollTimer = null;
 
-const session = requireAuth();
-if (session) {
+// Сессия — заполняется в bootstrap. До этого все async-кнопки заблокированы.
+let session = null;
+
+bootstrapApp({}, function (s) {
+  session = s;
   startHeartbeatLoop();
   applySettings();
   renderNav();
@@ -24,14 +27,15 @@ if (session) {
     initStaffChat();
   }
 
-  // Авто-обновление услуг при изменении в другой вкладке (директор)
+  // Авто-обновление при изменении (storage event эмулируется firebase-sync)
   window.addEventListener("storage", e => {
     if (e.key === "kus_services_v2") renderServices();
     if (e.key === "kus_settings") applySettings();
     if (e.key === "kus_all_orders") renderOrderHistory();
     if (e.key === "kus_chats") refreshStaffChat();
+    if (e.key === "kus_users") refreshArriveLeaveButtons();
   });
-}
+});
 
 /* =========================================================
    НАСТРОЙКИ САЙТА

@@ -35,13 +35,17 @@ const DEFAULT_SERVICES = [
 /* =========================================================
    ИНИЦИАЛИЗАЦИЯ
 ========================================================= */
-function initAuthSystem() {
+async function initAuthSystem() {
   const users = getUsers();
   if (users.length === 0) {
+    const hashedPw = window.hashPassword
+      ? await window.hashPassword("admin123")
+      : "admin123"; // fallback, если firebase-sync не загружен
     const defaultDirector = {
       id: "u_" + Date.now(),
       login: "director",
-      password: "admin123",
+      password: hashedPw,
+      passwordHashed: true,
       fullName: "Директор",
       role: "director",
       phone: "",
@@ -151,15 +155,19 @@ function saveUsers(users) {
   localStorage.setItem(AUTH_KEYS.USERS, JSON.stringify(users));
 }
 
-function createUser(userData, createdByLogin) {
+async function createUser(userData, createdByLogin) {
   const users = getUsers();
   if (users.some(u => u.login === userData.login)) {
     return { ok: false, error: "Логин уже существует" };
   }
+  const hashedPw = window.hashPassword
+    ? await window.hashPassword(userData.password)
+    : userData.password;
   const newUser = {
     id: "u_" + Date.now(),
     login: userData.login.trim(),
-    password: userData.password,
+    password: hashedPw,
+    passwordHashed: !!window.hashPassword,
     fullName: userData.fullName || userData.login,
     role: userData.role || "worker",
     phone: userData.phone || "",
@@ -185,11 +193,14 @@ function deleteUser(login, byLogin) {
   return { ok: true };
 }
 
-function updateUserPassword(login, newPassword, byLogin) {
+async function updateUserPassword(login, newPassword, byLogin) {
   const users = getUsers();
   const u = users.find(x => x.login === login);
   if (!u) return { ok: false, error: "Пользователь не найден" };
-  u.password = newPassword;
+  u.password = window.hashPassword
+    ? await window.hashPassword(newPassword)
+    : newPassword;
+  u.passwordHashed = !!window.hashPassword;
   saveUsers(users);
   addLog(byLogin, `Изменён пароль пользователя: ${login}`);
   return { ok: true };
@@ -203,10 +214,29 @@ function roleLabel(role) {
 /* =========================================================
    ВХОД / ВЫХОД / СЕССИЯ
 ========================================================= */
-function login(loginStr, password) {
+async function login(loginStr, password) {
   const users = getUsers();
-  const u = users.find(x => x.login === loginStr.trim() && x.password === password);
+  const trimmedLogin = loginStr.trim();
+  const u = users.find(x => x.login === trimmedLogin);
   if (!u) return { ok: false, error: "Неверный логин или пароль" };
+
+  // Сценарий 1: пароль уже хешированный — сравниваем хеши
+  // Сценарий 2: пароль ещё plain (старая запись) — сравниваем напрямую и мигрируем
+  let matched = false;
+  if (u.passwordHashed && window.hashPassword) {
+    const hashedInput = await window.hashPassword(password);
+    matched = (u.password === hashedInput);
+  } else {
+    matched = (u.password === password);
+    // Авто-миграция: если совпало в plain и доступен hash API — обновим запись
+    if (matched && window.hashPassword) {
+      u.password = await window.hashPassword(password);
+      u.passwordHashed = true;
+      saveUsers(users);
+    }
+  }
+
+  if (!matched) return { ok: false, error: "Неверный логин или пароль" };
 
   const session = {
     login: u.login,
@@ -246,6 +276,22 @@ function requireAuth(allowedRoles) {
     return null;
   }
   return s;
+}
+
+/* =========================================================
+   BOOTSTRAP — ждёт Firebase + проверяет авторизацию
+   Используйте в начале app.js / director.js:
+     bootstrapApp({ allowedRoles: ['director'] }, (session) => { ... });
+========================================================= */
+async function bootstrapApp(opts, callback) {
+  opts = opts || {};
+  // Ждём пока firebase-sync загрузит данные из облака
+  if (window.FB && !window.FB.isReady()) {
+    await window.FB.waitReady();
+  }
+  const session = requireAuth(opts.allowedRoles);
+  if (!session) return;
+  callback(session);
 }
 
 /* =========================================================
@@ -577,5 +623,12 @@ function getLastAttendanceForUser(login) {
 
 /* =========================================================
    АВТО-ИНИЦИАЛИЗАЦИЯ
+   Ждём Firebase (если есть) чтобы не создавать дефолтного директора
+   когда в облаке уже есть данные.
 ========================================================= */
-initAuthSystem();
+(async function () {
+  if (window.FB && !window.FB.isReady()) {
+    try { await window.FB.waitReady(); } catch (e) { /* ignore */ }
+  }
+  initAuthSystem();
+})();

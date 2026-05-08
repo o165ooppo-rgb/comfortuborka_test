@@ -3,7 +3,7 @@
    Управление: услуги, сотрудники, чат, заказы, клиенты, логи
 ========================================================= */
 
-const dirSession = requireAuth(["director"]);
+let dirSession = null;
 let activeTab = "dashboard";
 let chatPartner = null;
 let chatRefreshInterval = null;
@@ -11,10 +11,11 @@ let dashboardRefreshInterval = null;
 let currentOrdersFilter = "all";
 let editingServiceId = null;
 
-if (dirSession) {
+bootstrapApp({ allowedRoles: ["director"] }, function (s) {
+  dirSession = s;
   startHeartbeatLoop();
   initDirector();
-}
+});
 
 function initDirector() {
   document.getElementById("dirUserName").textContent = dirSession.fullName;
@@ -193,7 +194,7 @@ function openCreateUserModal() {
 }
 function closeCreateUserModal() { document.getElementById("createUserModal").classList.remove("open"); }
 
-function dirCreateUser() {
+async function dirCreateUser() {
   const fullName = document.getElementById("newFullName").value.trim();
   const login = document.getElementById("newLogin").value.trim();
   const password = document.getElementById("newPassword").value;
@@ -210,7 +211,7 @@ function dirCreateUser() {
     return;
   }
 
-  const res = createUser({ fullName, login, password, phone, role }, dirSession.login);
+  const res = await createUser({ fullName, login, password, phone, role }, dirSession.login);
   if (!res.ok) { errEl.textContent = res.error; return; }
   closeCreateUserModal();
   showToast("success", "Аккаунт создан", `${fullName} (${roleLabel(role)})`);
@@ -218,11 +219,11 @@ function dirCreateUser() {
   renderDashboard();
 }
 
-function dirChangePassword(login) {
+async function dirChangePassword(login) {
   const np = prompt(`Новый пароль для ${login}:`);
   if (!np) return;
   if (np.length < 4) { showToast("error", "Слишком короткий", "Минимум 4 символа"); return; }
-  const res = updateUserPassword(login, np, dirSession.login);
+  const res = await updateUserPassword(login, np, dirSession.login);
   if (!res.ok) showToast("error", "Ошибка", res.error);
   else showToast("success", "Готово", "Пароль изменён");
 }

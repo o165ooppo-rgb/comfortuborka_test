@@ -59,6 +59,8 @@
     <p class="login-footer muted">© 2026 Komfort Uborka • Самарканд</p>
   </div>
 
+  <script src="firebase-config.js"></script>
+  <script src="firebase-sync.js"></script>
   <script src="auth.js"></script>
   <script>
     // Если уже залогинен — сразу перебрасываем
@@ -77,7 +79,7 @@
       else { inp.type = "password"; icon.className = "fa-solid fa-eye"; }
     }
 
-    function doLogin() {
+    async function doLogin() {
       const loginStr = document.getElementById("loginInput").value.trim();
       const pw = document.getElementById("passwordInput").value;
       const errEl = document.getElementById("loginError");
@@ -88,7 +90,14 @@
         return;
       }
 
-      const res = login(loginStr, pw);
+      // Ждём пока Firebase подтянет актуальные данные
+      if (window.FB && !window.FB.isReady()) {
+        errEl.textContent = "Подключение к серверу...";
+        await window.FB.waitReady();
+        errEl.textContent = "";
+      }
+
+      const res = await login(loginStr, pw);
       if (!res.ok) {
         errEl.textContent = res.error;
         return;
